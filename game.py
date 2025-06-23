@@ -614,6 +614,5 @@ def interactive_chat_loop():
         
         # Save after every action
         save_game_state(SAVE_DIRECTORY / f"{game_state['id']}.xml")
-        
 if __name__ == "__main__":
     interactive_chat_loop()
