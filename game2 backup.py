@@ -7,7 +7,6 @@ import glob
 import subprocess
 import sys
 import time
-import re
 
 try:
     import ollama
@@ -72,6 +71,8 @@ def start_ollama():
     except Exception as e:
         print(f"An unexpected error occurred while starting Ollama: {e}")
         return False
+    
+
 
 def _parse_xml_node(node):
     data = node.attrib.copy()
@@ -234,10 +235,6 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
     try:
         player_name = game_state.get("playerName", DEFAULTS["name"])
         player_gender = game_state.get("playerGender", DEFAULTS["gender"]).lower()
-        player_race = game_state.get("playerRace", DEFAULTS["race"])
-        player_class = game_state.get("playerClass", DEFAULTS["class"])
-        player_background = game_state.get("playerBackground", DEFAULTS["background"])
-        player_inventory = ", ".join(game_state.get("playerInventory", [])) or "None"
 
         pronoun = "they"
         if player_gender == "male":
@@ -245,17 +242,10 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
         elif player_gender == "female":
             pronoun = "she"
 
-        player_stats = game_state.get("playerStats", {})
-        stats_str = ", ".join(f"{k}: {v}" for k, v in player_stats.items())
         player_context = (
             f"Name: {player_name}\n"
             f"Gender: {player_gender.capitalize()}\n"
-            f"Race: {player_race}\n"
-            f"Class: {player_class}\n"
-            f"Background: {player_background}\n"
-            f"Pronoun to use for player: {pronoun}\n"
-            f"Stats: {stats_str}\n"
-            f"Inventory: {player_inventory}"
+            f"Pronoun to use for player: {pronoun}"
         )
 
         context_summary = extract_minimal_context(current_session_xml_string_context)
@@ -275,29 +265,16 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
         elif roll_result == 20:
             roll_context += "This is a CRITICAL SUCCESS. The action succeeds spectacularly, with an added bonus or benefit."
 
-        key_npcs = ", ".join(game_state.get("KeyNPCs", [])) or "None"
-        key_locations = ", ".join(game_state.get("KeyLocations", [])) or "None"
-        key_items = ", ".join(game_state.get("KeyItems", [])) or "None"
-
         prompt_for_ai = (
-            f"You are a Dungeons and Dragons game master. "
-            f"Base the outcome of the player's action on their dice roll, the most relevant stat for the action, their class, race, background, and any items or conditions that might apply.\n\n"
+            f"You are a Dungeons and Dragons game master. You must base the outcome of the player's action on their dice roll.\n\n"
             f"== Player Character ==\n{player_context}\n\n"
             f"== Current Memory ==\n{memory_summary}\n\n"
             f"== Current Situation ==\n{context_summary}\n\n"
             f"== Player's Action ==\n{player_input_text}\n\n"
             f"== Dice Roll Result ==\n{roll_context}\n\n"
-            f"== Important NPCs ==\n{key_npcs}\n"
-            f"== Important Locations ==\n{key_locations}\n"
-            f"== Important Items ==\n{key_items}\n\n"
             f"== Instructions ==\n"
-            f"Whenever you mention a new important NPC, location, or item, tag it in your output using [NPC], [LOCATION], or [ITEM] after its name. "
-            f"Example: 'You meet Sir Reginald [NPC] at the Silver Inn [LOCATION].' "
-            f"Base the outcome of the player's action on their dice roll and relevant stats, class, race, background, and inventory. "
+            f"Based on the player's action and their dice roll, narrate the outcome. "
             f"Tell a story of exactly 3 sentences maximum, then suggest 2–3 numbered choices for the player's next move:\n"
-            f"Include at least one item that could be discovered or taken by the player if appropriate. \n"
-            f"After your story and choices, if the player takes damage, output a line: DAMAGE: <number>. If no damage, output DAMAGE: 0.\n"
-            f"After your output, specify the most relevant D&D skill for the player's action as SKILL: <SkillName> (e.g., SKILL: Stealth). If no skill applies, output SKILL: None.\n"
             f"1. ...\n2. ...\n3. ..."
         )
 
@@ -317,12 +294,6 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
     print("--- End AI Turn ---")
     return ai_response_text
 
-def extract_skill_from_ai_output(ai_output):
-    match = re.search(r"SKILL:\s*([A-Za-z ]+)", ai_output or "")
-    if match:
-        return match.group(1).strip()
-    return None
-
 def append_to_transcript(player_input, ai_output):
     if not TRANSCRIPT_FILE.exists():
         root = ET.Element("Transcript")
@@ -340,22 +311,6 @@ def append_to_transcript(player_input, ai_output):
         pass
 
     ET.ElementTree(root).write(TRANSCRIPT_FILE, encoding="UTF-8", xml_declaration=True)
-
-def extract_keywords_from_ai_output(ai_output):
-    npcs = re.findall(r"\b([\w\s'-]+)\s*\[NPC\]", ai_output)
-    locations = re.findall(r"\b([\w\s'-]+)\s*\[LOCATION\]", ai_output)
-    items = re.findall(r"\b([\w\s'-]+)\s*\[ITEM\]", ai_output)
-    return {
-        "KeyNPCs": [npc.strip() for npc in npcs],
-        "KeyLocations": [loc.strip() for loc in locations],
-        "KeyItems": [item.strip() for item in items]
-    }
-
-def extract_skill_from_ai_output(ai_output):
-    match = re.search(r"SKILL:\s*([A-Za-z ]+)", ai_output or "")
-    if match:
-        return match.group(1).strip()
-    return None
 
 def interactive_chat_loop():
     global game_state
@@ -409,65 +364,13 @@ def interactive_chat_loop():
             "playerBackground": player_bg,
             "Memory": {"Fact": []},
             "Log": {"Entry": []},
-            "PlayerCharacters": {"Character": [{"name": player_name, "Race": player_race, "Class": player_class, "Biography": player_bg}]},
-            "KeyNPCs": [],
-            "KeyLocations": [],
-            "KeyItems": [],
-            "playerInventory": [],
-            "playerhitPoints": 10,
-            "playerArmorClass": 10,
-            "playermaxHitPoints": 10,
-            "playerStats": {
-                "Strength": 10,
-                "Dexterity": 10,
-                "Constitution": 10,
-                "Intelligence": 10,
-                "Wisdom": 10,
-                "Charisma": 10
-            },
-            "playerSkills": {},  # Will be filled by AI below
+            "PlayerCharacters": {"Character": [{"name": player_name, "Race": player_race, "Class": player_class, "Biography": player_bg}]}
         }
-
-        # --- NEW: Let AI generate starting skills based on character concept ---
-        if ollama is not None:
-            skill_prompt = (
-                f"You are a D&D character builder. "
-                f"Given the following character details, generate a JSON object mapping D&D 5e skill names to modifiers (between -1 and +5) "
-                f"that would make sense for this character. Only output the JSON object, nothing else.\n"
-                f"Name: {player_name}\n"
-                f"Race: {player_race}\n"
-                f"Class: {player_class}\n"
-                f"Gender: {player_gender}\n"
-                f"Background: {player_bg}\n"
-                f"Example output: {{\"Stealth\": 2, \"Persuasion\": 1, \"Arcana\": 0}}"
-            )
-            try:
-                response = ollama.generate(
-                    model='phi3:mini',
-                    prompt=skill_prompt,
-                    stream=False
-                )
-                import json
-                skills_json = response.get('response', '{}')
-                # Extract JSON from response (in case AI adds text)
-                match = re.search(r"\{.*\}", skills_json, re.DOTALL)
-                if match:
-                    skills_json = match.group(0)
-                game_state["playerSkills"] = json.loads(skills_json)
-                print("AI-generated starting skills:", game_state["playerSkills"])
-            except Exception as e:
-                print(f"Could not generate skills with AI: {e}")
-                game_state["playerSkills"] = {}
-        else:
-            print("AI not available, starting with no skills.")
-            game_state["playerSkills"] = {}
 
     while True:
         print(f"\n== {game_state['campaignName']} / {game_state['currentLocation']} ==")
         print(f"Recap: {game_state['lastRecap']}")
         cmd = input("What do you do? (or type 'save', 'quit'): ").strip()
-        print(f"HP: {game_state['playerHitPoints']}/{game_state['playerMaxHitPoints']}")
-        print("Stats: " + ", ".join(f"{k}: {v}" for k, v in game_state.get("playerStats", {}).items()))
 
         if cmd.lower() == "quit":
             # We don't try to kill the process anymore, as it might be used by other apps.
@@ -476,60 +379,6 @@ def interactive_chat_loop():
         elif cmd.lower() == "save":
             save_game_state(SAVE_DIRECTORY / f"{game_state['id']}.xml")
             continue
-        elif cmd.lower().startswith("take "):
-            item = cmd[5:].strip()
-            if not item:
-                print("Specify an item to take.")
-                continue
-            # Only allow taking items that have been mentioned by the AI
-            if item in game_state.get("KeyItems", []) and item not in game_state["playerInventory"]:
-                game_state["playerInventory"].append(item)
-                print(f"You take the {item}.")
-            elif item in game_state["playerInventory"]:
-                print(f"You already have the {item}.")
-            else:
-                print(f"No such item '{item}' found to take.")
-            continue
-        elif cmd.lower() in ("inventory", "i"):
-            inv = game_state.get("playerInventory", [])
-            if inv:
-                print("Your inventory:")
-                for item in inv:
-                    print(f"- {item}")
-            else:
-                print("Your inventory is empty.")
-            continue
-        elif cmd.lower().startswith("use "):
-            item = cmd[4:].strip()
-            if item in game_state.get("playerInventory", []):
-                print(f"You attempt to use the {item}...")
-                # Pass as player_input_text: "use <item>"
-                player_input_text = f"use {item}"
-            else:
-                print(f"You don't have '{item}' in your inventory.")
-                continue
-        elif cmd.lower() in ("stats", "stat"):
-            stats = game_state.get("playerStats", {})
-            print("Your stats:")
-            for k, v in stats.items():
-                print(f"- {k}: {v}")
-            continue
-        elif cmd.lower().startswith("setstat "):
-            # Example: setstat Strength 15
-            parts = cmd.split()
-            if len(parts) == 3 and parts[1].capitalize() in game_state["playerStats"]:
-                stat = parts[1].capitalize()
-                try:
-                    val = int(parts[2])
-                    game_state["playerStats"][stat] = val
-                    print(f"{stat} set to {val}.")
-                except ValueError:
-                    print("Invalid value.")
-            else:
-                print("Usage: setstat <StatName> <Value>")
-            continue
-        else:
-            player_input_text = cmd
 
         roll_result = random.randint(1, 20)
         print("\n--- Action Roll ---")
@@ -548,49 +397,7 @@ def interactive_chat_loop():
         temp_path.unlink()
 
         ai_output = get_ai_narrative(cmd, context_xml, roll_result)
-
-        # --- NEW: Skill check logic ---
-        skill_name = extract_skill_from_ai_output(ai_output)
-        skill_mod = 0
-        if skill_name and skill_name != "None":
-            skill_mod = game_state.get("playerSkills", {}).get(skill_name, 0)
-            skill_roll = roll_result + skill_mod
-            print(f"Skill Check: {skill_name} (modifier {skill_mod}), total roll: {skill_roll}")
-            # Re-run AI with the skill roll result for narration
-            ai_output = get_ai_narrative(cmd, context_xml, skill_roll)
-
-        # --- NEW: Extract and store tagged keywords ---
-        keywords = extract_keywords_from_ai_output(ai_output or "")
-        for k in ["KeyNPCs", "KeyLocations", "KeyItems"]:
-            for val in keywords[k]:
-                if val and val not in game_state[k]:
-                    game_state[k].append(val)
-
-        # --- NEW: Parse DAMAGE and update HP ---
-        damage_match = re.search(r"DAMAGE:\s*(\d+)", ai_output or "", re.IGNORECASE)
-        damage = int(damage_match.group(1)) if damage_match else 0
-        if damage > 0:
-            game_state["playerHitPoints"] = max(0, game_state.get("playerHitPoints", 0) - damage)
-            print(f"You take {damage} damage! HP: {game_state['playerHitPoints']}/{game_state['playerMaxHitPoints']}")
-            if game_state["playerHitPoints"] <= 0:
-                print("You have died! Game over.")
-                save_game_state(SAVE_DIRECTORY / f"{game_state['id']}.xml")
-                break
-
-        # --- NEW: Skill check logic (dynamic skills) ---
-        skill_name = extract_skill_from_ai_output(ai_output)
-        skill_mod = 0
-        if skill_name and skill_name.lower() != "none":
-            # If skill is new, add it to playerSkills with default 0
-            if skill_name not in game_state["playerSkills"]:
-                print(f"New skill detected: '{skill_name}'. Adding to your skills with a +0 modifier.")
-                game_state["playerSkills"][skill_name] = 0
-            skill_mod = game_state["playerSkills"].get(skill_name, 0)
-            skill_roll = roll_result + skill_mod
-            print(f"Skill Check: {skill_name} (modifier {skill_mod}), total roll: {skill_roll}")
-            # Feed the skill roll result back to the AI for narration
-            ai_output = get_ai_narrative(cmd, context_xml, skill_roll)
-
+        
         update_ai_memory(cmd, ai_output)
         
         append_to_transcript(cmd, ai_output)
