@@ -707,15 +707,51 @@ def interactive_chat_loop():
         ai_output = get_ai_narrative(cmd, context_xml, roll_result, rag_context=rag_context)
         parse_and_apply_ai_config(ai_output)
 
-        # --- NEW: Skill check logic ---
+        # --- Stat modifier logic: apply relevant stat to skill checks ---
+        # This block replaces the previous skill check logic
         skill_name = extract_skill_from_ai_output(ai_output)
         skill_mod = 0
-        if skill_name and skill_name != "None":
-            skill_mod = game_state.get("playerSkills", {}).get(skill_name, 0)
-            skill_roll = roll_result + skill_mod
-            print(f"Skill Check: {skill_name} (modifier {skill_mod}), total roll: {skill_roll}")
-            # Re-run AI with the skill roll result for narration
-            ai_output = get_ai_narrative(cmd, context_xml, skill_roll)
+        stat_mod = 0
+        if skill_name and skill_name.lower() != "none":
+            # If skill is new, add it to playerSkills with default 0
+            if skill_name not in game_state["playerSkills"]:
+                print(f"New skill detected: '{skill_name}'. Adding to your skills with a +0 modifier.")
+                game_state["playerSkills"][skill_name] = 0
+            skill_mod = game_state["playerSkills"].get(skill_name, 0)
+
+            # Map skills to stats (D&D 5e standard)
+            skill_to_stat = {
+                "Acrobatics": "Dexterity",
+                "Animal Handling": "Wisdom",
+                "Arcana": "Intelligence",
+                "Athletics": "Strength",
+                "Deception": "Charisma",
+                "History": "Intelligence",
+                "Insight": "Wisdom",
+                "Intimidation": "Charisma",
+                "Investigation": "Intelligence",
+                "Medicine": "Wisdom",
+                "Nature": "Intelligence",
+                "Perception": "Wisdom",
+                "Performance": "Charisma",
+                "Persuasion": "Charisma",
+                "Religion": "Intelligence",
+                "Sleight of Hand": "Dexterity",
+                "Stealth": "Dexterity",
+                "Survival": "Wisdom"
+            }
+            # Default to no stat mod if not found
+            stat_name = skill_to_stat.get(skill_name, None)
+            if stat_name and stat_name in game_state["playerStats"]:
+                stat_score = game_state["playerStats"][stat_name]
+                stat_mod = (stat_score - 10) // 2  # D&D 5e modifier
+            else:
+                stat_mod = 0
+
+            total_roll = roll_result + skill_mod + stat_mod
+            print(f"Skill Check: {skill_name} (skill mod {skill_mod}, {stat_name if stat_name else 'No Stat'} mod {stat_mod}), total roll: {total_roll}")
+            # Feed the skill roll result back to the AI for narration
+            ai_output = get_ai_narrative(cmd, context_xml, total_roll)
 
         # --- NEW: Extract and store tagged keywords ---
         keywords = extract_keywords_from_ai_output(ai_output or "")
