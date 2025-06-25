@@ -469,6 +469,8 @@ def interactive_chat_loop():
             },
             "playerSkills": {},  # Will be filled by AI below
             "playerGold": 0,
+            "playerXP": 0,
+            "playerLevel": 1,
         }
 
         # --- NEW: Let AI generate starting skills based on character concept ---
@@ -504,6 +506,38 @@ def interactive_chat_loop():
         else:
             print("AI not available, starting with no skills.")
             game_state["playerSkills"] = {}
+
+    def check_level_up():
+        """Check if player has enough XP to level up and handle stat increase."""
+        xp = game_state.get("playerXP", 0)
+        level = game_state.get("playerLevel", 1)
+        # Example XP threshold: 100 * current level
+        threshold = 100 * level
+        while xp >= threshold:
+            game_state["playerLevel"] = level + 1
+            print(f"\n*** Congratulations! You reached level {level + 1}! ***")
+            # Let player choose a stat to increase
+            stats = list(game_state["playerStats"].keys())
+            print("Choose a stat to increase:")
+            for i, stat in enumerate(stats):
+                print(f"{i+1}. {stat} (current: {game_state['playerStats'][stat]})")
+            choice = input("Enter the number of the stat to increase: ").strip()
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(stats):
+                    chosen_stat = stats[idx]
+                    game_state["playerStats"][chosen_stat] += 1
+                    print(f"{chosen_stat} increased to {game_state['playerStats'][chosen_stat]}!")
+                else:
+                    print("Invalid choice. No stat increased.")
+            except Exception:
+                print("Invalid input. No stat increased.")
+            # Heal player to max HP on level up
+            game_state["playerHitPoints"] = game_state.get("playerMaxHitPoints", 10)
+            print("You are fully healed!")
+            # Update for next level
+            level = game_state["playerLevel"]
+            threshold = 100 * level
 
     while True:
         print(f"\n== {game_state['campaignName']} / {game_state['currentLocation']} ==")
@@ -762,6 +796,14 @@ def interactive_chat_loop():
             rag_context += "\n" + rag_snippets
         else:
             rag_context = "No directly relevant files found."
+
+        # After AI output and before saving, reward XP and check for level up
+        # Example: +20 XP per action (customize as needed)
+        game_state["playerXP"] = game_state.get("playerXP", 0) + 20
+        print(f"You gained 20 XP! Total XP: {game_state['playerXP']}")
+        check_level_up()
+
+        save_game_state(SAVE_DIRECTORY / f"{game_state['id']}.xml")
 
 def update_ai_config(key, value):
     """Update a key in ai_config.xml with a new value."""
