@@ -1,3 +1,7 @@
+import xml.etree.ElementTree as ET
+from pathlib import Path
+import glob
+
 def read_xml_file(filepath):
     """Reads an XML file and returns its content as an ElementTree object."""
     try:
