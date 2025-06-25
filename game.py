@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import re
+from dnd_ai_game.src.ai.rag import RAG
 
 try:
     import ollama
@@ -17,6 +18,8 @@ except ImportError:
 SAVE_DIRECTORY = Path("dnd_ai_sessions")
 TRANSCRIPT_FILE = SAVE_DIRECTORY / "full_transcript.xml"
 game_state = None
+model = 'phi3:3.8b-mini-4k-instruct-q4_0'
+RAG_INSTANCE = RAG(SAVE_DIRECTORY)
 
 DEFAULTS = {
     "campaign": "The Unwritten Tale",
@@ -221,8 +224,8 @@ def update_ai_memory(player_input, ai_response):
     
     game_state["Memory"]["Fact"].append(new_fact)
 
-def get_ai_narrative(player_input_text, current_session_xml_string_context, roll_result):
-    print("\n--- AI (Fast Model) Turn ---")
+def get_ai_narrative(player_input_text, current_session_xml_string_context, roll_result, rag_context=""):
+    print("\n--- AI Turn ---")
     ai_response_text = None
 
     if ollama is None:
@@ -279,9 +282,18 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
         key_locations = ", ".join(game_state.get("KeyLocations", [])) or "None"
         key_items = ", ".join(game_state.get("KeyItems", [])) or "None"
 
+        # NEW: Add all session summaries
+        all_sessions_summary = summarize_all_sessions()
+
+        # Load AI config/instructions dynamically
+        ai_config = load_ai_config()
+        prompt_instructions = ai_config.findtext("PromptInstructions", "")
+        max_sentences = ai_config.findtext("MaxSentences", "5")
+        always_tag = ai_config.findtext("AlwaysTagEntities", "true")
+        
+
         prompt_for_ai = (
-            f"You are a Dungeons and Dragons game master. "
-            f"Base the outcome of the player's action on their dice roll, the most relevant stat for the action, their class, race, background, and any items or conditions that might apply.\n\n"
+            f"{prompt_instructions}\n\n"
             f"== Player Character ==\n{player_context}\n\n"
             f"== Current Memory ==\n{memory_summary}\n\n"
             f"== Current Situation ==\n{context_summary}\n\n"
@@ -290,19 +302,18 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
             f"== Important NPCs ==\n{key_npcs}\n"
             f"== Important Locations ==\n{key_locations}\n"
             f"== Important Items ==\n{key_items}\n\n"
+            f"== All Previous Sessions ==\n{all_sessions_summary}\n\n"
+            f"== RAG Retrieved Info ==\n{rag_context}\n\n"
             f"== Instructions ==\n"
-            f"Whenever you mention a new important NPC, location, or item, tag it in your output using [NPC], [LOCATION], or [ITEM] after its name. "
-            f"Example: 'You meet Sir Reginald [NPC] at the Silver Inn [LOCATION].' "
-            f"Base the outcome of the player's action on their dice roll and relevant stats, class, race, background, and inventory. "
-            f"Tell a story of exactly 3 sentences maximum, then suggest 2–3 numbered choices for the player's next move:\n"
-            f"Include at least one item that could be discovered or taken by the player if appropriate. \n"
-            f"After your story and choices, if the player takes damage, output a line: DAMAGE: <number>. If no damage, output DAMAGE: 0.\n"
-            f"After your output, specify the most relevant D&D skill for the player's action as SKILL: <SkillName> (e.g., SKILL: Stealth). If no skill applies, output SKILL: None.\n"
-            f"1. ...\n2. ...\n3. ..."
+            f"Always limit the output to {max_sentences} sentences maximum, and always end with a numbered list of choices.\n"
+            f"{'Always tag new NPCs, locations, and items as [NPC], [LOCATION], or [ITEM].' if always_tag.lower() == 'true' else ''}\n"
+            f"Whenever you mention a merchant, shop, or market, tag it as [MERCHANT]. "
+            f"If the player receives or spends gold, mention the amount as GOLD: <number>. "
+            f"Include opportunities to buy or sell items when appropriate. "
         )
 
         response = ollama.generate(
-            model='phi3:mini',
+            model= model,
             prompt=prompt_for_ai,
             stream=False
         )
@@ -356,6 +367,35 @@ def extract_skill_from_ai_output(ai_output):
     if match:
         return match.group(1).strip()
     return None
+
+def load_ai_config():
+    config_path = SAVE_DIRECTORY / "ai_config.xml"
+    if not config_path.exists():
+        # Create default config if missing
+        root = ET.Element("AIConfig")
+        ET.SubElement(root, "PromptInstructions").text = (
+            "You are a Dungeons and Dragons game master. Always consider all facts, logs, NPCs, items, and locations from all session XMLs before responding. Use concise, engaging storytelling. Always follow the rules and style in this config."
+        )
+        ET.SubElement(root, "MaxSentences").text = "5"
+        ET.SubElement(root, "AlwaysTagEntities").text = "true"
+        ET.ElementTree(root).write(config_path, encoding="UTF-8", xml_declaration=True)
+    tree = ET.parse(config_path)
+    return tree.getroot()
+
+def summarize_all_sessions():
+    """Summarize all session XMLs (except ai_config.xml) for AI context."""
+    summaries = []
+    for xml_file in SAVE_DIRECTORY.glob("*.xml"):
+        if xml_file.name == "ai_config.xml":
+            continue
+        try:
+            with open(xml_file, encoding="utf-8") as f:
+                xml_str = f.read()
+            summary = extract_minimal_context(xml_str)
+            summaries.append(f"Session: {xml_file.name}\n{summary}")
+        except Exception as e:
+            summaries.append(f"Session: {xml_file.name}\n(Error reading: {e})")
+    return "\n\n".join(summaries) if summaries else "No previous sessions."
 
 def interactive_chat_loop():
     global game_state
@@ -414,9 +454,9 @@ def interactive_chat_loop():
             "KeyLocations": [],
             "KeyItems": [],
             "playerInventory": [],
-            "playerhitPoints": 10,
+            "playerHitPoints": 10, 
             "playerArmorClass": 10,
-            "playermaxHitPoints": 10,
+            "playerMaxHitPoints": 10, 
             "playerStats": {
                 "Strength": 10,
                 "Dexterity": 10,
@@ -426,6 +466,7 @@ def interactive_chat_loop():
                 "Charisma": 10
             },
             "playerSkills": {},  # Will be filled by AI below
+            "playerGold": 0,
         }
 
         # --- NEW: Let AI generate starting skills based on character concept ---
@@ -443,7 +484,7 @@ def interactive_chat_loop():
             )
             try:
                 response = ollama.generate(
-                    model='phi3:mini',
+                    model= model,
                     prompt=skill_prompt,
                     stream=False
                 )
@@ -470,11 +511,23 @@ def interactive_chat_loop():
         print("Stats: " + ", ".join(f"{k}: {v}" for k, v in game_state.get("playerStats", {}).items()))
 
         if cmd.lower() == "quit":
-            # We don't try to kill the process anymore, as it might be used by other apps.
-            # The user can close it manually.
+            subprocess.run(["C:\\Windows\\System32\\taskkill.exe", "/IM", "ollama.exe", "/F"], capture_output=True, text=True)
             break
         elif cmd.lower() == "save":
             save_game_state(SAVE_DIRECTORY / f"{game_state['id']}.xml")
+            continue
+        elif cmd.lower() == "delete":
+            confirm = input("Are you sure you want to delete ALL saved games? Type 'delete' to confirm: ").strip().lower()
+            if confirm == "delete":
+                files = [f for f in SAVE_DIRECTORY.glob("*.xml") if f.name != "ai_config.xml"]
+                for f in files:
+                    try:
+                        f.unlink()
+                    except Exception as e:
+                        print(f"Could not delete {f}: {e}")
+                print("All XML save files deleted (except ai_config.xml).")
+            else:
+                print("Delete cancelled.")
             continue
         elif cmd.lower().startswith("take "):
             item = cmd[5:].strip()
@@ -514,6 +567,20 @@ def interactive_chat_loop():
             for k, v in stats.items():
                 print(f"- {k}: {v}")
             continue
+        elif cmd.lower() in ("help", "commands", "?"):
+            print("Available commands:")
+            print("  save                - Save the game")
+            print("  quit                - Quit the game")
+            print("  delete              - Delete all saved games")
+            print("  take <item>         - Take an item mentioned by the AI")
+            print("  inventory, i        - Show your inventory")
+            print("  use <item>          - Use an item from your inventory")
+            print("  stats, stat         - Show your stats")
+            print("  buy <item>          - Buy an item (in shop/market/merchant only)")
+            print("  sell <item>         - Sell an item (in shop/market/merchant only)")
+            print("  help, commands, ?   - Show this command list")
+            print("  <anything else>     - Perform an in-game action")
+            continue
         elif cmd.lower().startswith("setstat "):
             # Example: setstat Strength 15
             parts = cmd.split()
@@ -527,6 +594,48 @@ def interactive_chat_loop():
                     print("Invalid value.")
             else:
                 print("Usage: setstat <StatName> <Value>")
+            continue
+        elif cmd.lower().startswith("buy "):
+            item = cmd[4:].strip()
+            # Only allow buying in shop/market/merchant context
+            allowed = any(
+                tag in game_state.get("KeyLocations", []) + game_state.get("KeyNPCs", [])
+                for tag in ["Shop", "Market", "Merchant"]
+            )
+            if not allowed:
+                print("You can only buy items when at a shop, market, or with a merchant.")
+                continue
+            # Example price list (expand as needed)
+            price_list = {"Potion": 5, "Sword": 15, "Phoenix Feather": 50}
+            if item not in price_list:
+                print(f"{item} is not available for sale.")
+                continue
+            price = price_list[item]
+            if game_state["playerGold"] < price:
+                print(f"Not enough gold. {item} costs {price} gold, you have {game_state['playerGold']}.")
+                continue
+            game_state["playerGold"] -= price
+            game_state["playerInventory"].append(item)
+            print(f"You bought {item} for {price} gold. Gold left: {game_state['playerGold']}")
+            continue
+
+        elif cmd.lower().startswith("sell "):
+            item = cmd[5:].strip()
+            allowed = any(
+                tag in game_state.get("KeyLocations", []) + game_state.get("KeyNPCs", [])
+                for tag in ["Shop", "Market", "Merchant"]
+            )
+            if not allowed:
+                print("You can only sell items when at a shop, market, or with a merchant.")
+                continue
+            if item not in game_state["playerInventory"]:
+                print(f"You don't have {item} to sell.")
+                continue
+            price_list = {"Potion": 3, "Sword": 10, "Phoenix Feather": 30}
+            price = price_list.get(item, 1)
+            game_state["playerGold"] += price
+            game_state["playerInventory"].remove(item)
+            print(f"You sold {item} for {price} gold. Gold now: {game_state['playerGold']}")
             continue
         else:
             player_input_text = cmd
@@ -547,7 +656,20 @@ def interactive_chat_loop():
             context_xml = f.read()
         temp_path.unlink()
 
-        ai_output = get_ai_narrative(cmd, context_xml, roll_result)
+        # --- FIX: Get relevant info from RAG for the player's command BEFORE calling get_ai_narrative ---
+        rag_results = RAG_INSTANCE.retrieve_information(cmd)
+        if rag_results:
+            rag_context = "Relevant files: " + ", ".join(rag_results)
+            rag_snippets = "\n".join(
+                f"{fname}: {RAG_INSTANCE.documents[fname][:300]}..." for fname in rag_results
+            )
+            rag_context += "\n" + rag_snippets
+        else:
+            rag_context = "No directly relevant files found."
+
+        # --- FIX: Only call get_ai_narrative ONCE, with rag_context ---
+        ai_output = get_ai_narrative(cmd, context_xml, roll_result, rag_context=rag_context)
+        parse_and_apply_ai_config(ai_output)
 
         # --- NEW: Skill check logic ---
         skill_name = extract_skill_from_ai_output(ai_output)
@@ -573,9 +695,21 @@ def interactive_chat_loop():
             game_state["playerHitPoints"] = max(0, game_state.get("playerHitPoints", 0) - damage)
             print(f"You take {damage} damage! HP: {game_state['playerHitPoints']}/{game_state['playerMaxHitPoints']}")
             if game_state["playerHitPoints"] <= 0:
-                print("You have died! Game over.")
-                save_game_state(SAVE_DIRECTORY / f"{game_state['id']}.xml")
-                break
+                # --- SINGLE LIFE UNLESS REVIVAL ITEM/BLESSING ---
+                revival_items = ["Blessing of Resurrection", "Scroll of True Revival", "Phoenix Feather"]  # Add more as needed
+                found_revival = None
+                for item in revival_items:
+                    if item in game_state.get("playerInventory", []):
+                        found_revival = item
+                        break
+                if found_revival:
+                    print(f"You would have died, but your {found_revival} saves you! The item vanishes in a flash of light.")
+                    game_state["playerInventory"].remove(found_revival)
+                    game_state["playerHitPoints"] = game_state.get("playerMaxHitPoints", 10) // 2  # Revive at half HP
+                else:
+                    print("You have died! Game over. (No magic or blessing to revive you.)")
+                    save_game_state(SAVE_DIRECTORY / f"{game_state['id']}.xml")
+                    break
 
         # --- NEW: Skill check logic (dynamic skills) ---
         skill_name = extract_skill_from_ai_output(ai_output)
@@ -614,5 +748,39 @@ def interactive_chat_loop():
         
         # Save after every action
         save_game_state(SAVE_DIRECTORY / f"{game_state['id']}.xml")
+
+        # Get relevant info from RAG for the player's command
+        rag_results = RAG_INSTANCE.retrieve_information(cmd)
+        if rag_results:
+            rag_context = "Relevant files: " + ", ".join(rag_results)
+            # Optionally, include snippets:
+            rag_snippets = "\n".join(
+                f"{fname}: {RAG_INSTANCE.documents[fname][:300]}..." for fname in rag_results
+            )
+            rag_context += "\n" + rag_snippets
+        else:
+            rag_context = "No directly relevant files found."
+
+def update_ai_config(key, value):
+    """Update a key in ai_config.xml with a new value."""
+    config_path = SAVE_DIRECTORY / "ai_config.xml"
+    tree = ET.parse(config_path)
+    root = tree.getroot()
+    elem = root.find(key)
+    if elem is None:
+        elem = ET.SubElement(root, key)
+    elem.text = str(value)
+    ET.ElementTree(root).write(config_path, encoding="UTF-8", xml_declaration=True)
+    print(f"AI config updated: {key} = {value}")
+
+def parse_and_apply_ai_config(ai_output):
+    """Detect and apply CONFIG: Set <Key>=<Value> in AI output."""
+    match = re.search(r"CONFIG:\s*Set\s+(\w+)\s*=\s*([^\n\r]+)", ai_output or "", re.IGNORECASE)
+    if match:
+        key, value = match.group(1), match.group(2).strip()
+        update_ai_config(key, value)
+        return True
+    return False
+
 if __name__ == "__main__":
     interactive_chat_loop()
