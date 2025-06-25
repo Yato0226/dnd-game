@@ -18,7 +18,7 @@ except ImportError:
 SAVE_DIRECTORY = Path("dnd_ai_sessions")
 TRANSCRIPT_FILE = SAVE_DIRECTORY / "full_transcript.xml"
 game_state = None
-model = 'phi3:3.8b-mini-4k-instruct-q4_0'
+model = 'phi3:3.8b-mini-4k-instruct-q4_0' # Default model, can be changed to any Ollama model
 RAG_INSTANCE = RAG(SAVE_DIRECTORY)
 
 DEFAULTS = {
@@ -304,7 +304,9 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
             f"== Important Items ==\n{key_items}\n\n"
             f"== All Previous Sessions ==\n{all_sessions_summary}\n\n"
             f"== RAG Retrieved Info ==\n{rag_context}\n\n"
+            f"== AI Config XML ==\n{ET.tostring(ai_config, encoding='unicode')}\n\n"
             f"== Instructions ==\n"
+            f"Before replying, you MUST consider all facts, logs, NPCs, items, locations, and config from all session XMLs and the AI config XML. "
             f"Always limit the output to {max_sentences} sentences maximum, and always end with a numbered list of choices.\n"
             f"{'Always tag new NPCs, locations, and items as [NPC], [LOCATION], or [ITEM].' if always_tag.lower() == 'true' else ''}\n"
             f"Whenever you mention a merchant, shop, or market, tag it as [MERCHANT]. "
