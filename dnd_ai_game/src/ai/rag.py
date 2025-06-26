@@ -51,3 +51,17 @@ class RAG:
 
     def get_all_documents(self):
         return list(self.documents.keys())
+
+    def get_context_for_query(self, query):
+        """
+        Returns a string of relevant document snippets for the given query.
+        For now, returns None for compatibility with Ollama's API.
+        """
+        results = self.retrieve_information(query)
+        if not results:
+            return None
+        snippets = []
+        for fname in results:
+            content = self.documents.get(fname, "")
+            snippets.append(f"{fname}: {content[:300]}...")
+        return "\n".join(snippets)

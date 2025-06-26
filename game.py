@@ -183,7 +183,9 @@ def extract_minimal_context(xml_string):
         log_entries = root.find("Log")
         last_3_logs = []
         if log_entries is not None:
-            for entry in log_entries.findall(".//Entry")[-3:]:
+            entries = log_entries.findall(".//Entry")
+            entries = list(entries) if entries is not None else []
+            for entry in entries[-3:]:
                 content = entry.findtext("Content")
                 if content:
                     last_3_logs.append(content.strip())
@@ -206,7 +208,8 @@ def summarize_memory_facts():
     for fact in memory_facts[-3:]:
         player_input = fact.get('player_input', '[No Input Recorded]')
         ai_response = fact.get('ai_response', '[No Response Recorded]')
-        summary_lines.append(f"- Player: {player_input}\n  AI: {ai_response.splitlines()[0]}")
+        ai_response_str = str(ai_response)
+        summary_lines.append(f"- Player: {player_input}\n  AI: {ai_response_str.splitlines()[0] if ai_response_str else ''}")
     return "\n".join(summary_lines)
 
 def update_ai_memory(player_input, ai_response):
@@ -229,9 +232,7 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
     ai_response_text = None
 
     if ollama is None:
-        print("CRITICAL: 'ollama' library not found. Falling back to manual input.")
-        ai_response_text = input("Fallback - GM (manual), enter narrative + choices: ")
-        print("--- End AI Turn ---")
+        print("CRITICAL: 'ollama' library not found.")
         return ai_response_text
         
     try:
@@ -317,11 +318,10 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
         response = ollama.generate(
             model=model,
             prompt=prompt_for_ai,
-            stream=False,
-            temperature=1.2,  # Add this if supported
-            ngl=999,
-            top_k=30,  # Adjust to control randomness
-            context=RAG_INSTANCE.get_context_for_query(prompt_for_ai),
+            stream=True,
+            temperature=1,  # Add this if supported
+            top_p=0.9,
+            top_k=50,
         )
         ai_response_text = response.get('response')
         if not ai_response_text:
@@ -329,8 +329,7 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
 
     except Exception as e:
         print(f"Error communicating with Ollama: {e}")
-        ai_response_text = input("Fallback - GM (manual), enter narrative + choices: ")
-
+        sys.exit(1)
     print("--- End AI Turn ---")
     return ai_response_text
 
@@ -494,10 +493,10 @@ def interactive_chat_loop():
                     model= model,
                     prompt=skill_prompt,
                     context=RAG_INSTANCE.get_context_for_query(skill_prompt),
-                    stream=False,
-                    temperature=1.2,  # Add this if supported
-                    ngl=999,
-                    max_tokens=200  # Limit to prevent overly long responses
+                    stream=True,
+                    temperature=0,  # Add this if supported
+                    max_tokens=200,  # Limit to prevent overly long responses
+                    
                 )
                 import json
                 skills_json = response.get('response', '{}')
@@ -518,10 +517,12 @@ def interactive_chat_loop():
     if "turn_counter" not in game_state:
         game_state["turn_counter"] = 0
 
+    game_state["turn_counter"] = int(game_state.get("turn_counter", 0)) + 1
+
     def check_level_up():
         """Check if player has enough XP to level up and handle stat increase."""
-        xp = game_state.get("playerXP", 0)
-        level = game_state.get("playerLevel", 1)
+        xp = int(game_state.get("playerXP", 0))
+        level = int(game_state.get("playerLevel", 1))
         # Example XP threshold: 100 * current level
         threshold = 100 * level
         while xp >= threshold:
@@ -688,7 +689,7 @@ def interactive_chat_loop():
             player_input_text = cmd
 
         # Increment turn counter
-        game_state["turn_counter"] = game_state.get("turn_counter", 0) + 1
+        game_state["turn_counter"] = int(game_state.get("turn_counter", 0)) + 1
 
         roll_result = random.randint(1, 20)
         print("\n--- Action Roll ---")
@@ -865,7 +866,7 @@ def interactive_chat_loop():
 
         # After AI output and before saving, reward XP and check for level up
         # Example: +20 XP per action (customize as needed)
-        game_state["playerXP"] = game_state.get("playerXP", 0) + 20
+        game_state["playerXP"] = int(game_state.get("playerXP", 0)) + 20
         print(f"You gained 20 XP! Total XP: {game_state['playerXP']}")
         check_level_up()
 
@@ -921,12 +922,10 @@ def get_ai_event(turn_counter, context_xml, rag_context=""):
         response = ollama.generate(
             model=model,
             prompt=prompt_for_world_event,
-            stream=False,
-            temperature=1.2,
-            ngl=999,
+            stream=True,
+            temperature=1,
             max_tokens=500,  # Limit to prevent overly long responses
-            presence_penalty=0.8,
-            context=RAG_INSTANCE.get_context_for_query(prompt_for_world_event),
+            #presence_penalty=0.8,
         )
         event_text = response.get('response')
         print(f"World Event: {event_text}")
