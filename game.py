@@ -507,6 +507,10 @@ def interactive_chat_loop():
             print("AI not available, starting with no skills.")
             game_state["playerSkills"] = {}
 
+    # Add turn_counter to game_state if not present
+    if "turn_counter" not in game_state:
+        game_state["turn_counter"] = 0
+
     def check_level_up():
         """Check if player has enough XP to level up and handle stat increase."""
         xp = game_state.get("playerXP", 0)
@@ -676,6 +680,9 @@ def interactive_chat_loop():
         else:
             player_input_text = cmd
 
+        # Increment turn counter
+        game_state["turn_counter"] = game_state.get("turn_counter", 0) + 1
+
         roll_result = random.randint(1, 20)
         print("\n--- Action Roll ---")
         print(f"You attempt to '{cmd}'...")
@@ -702,6 +709,22 @@ def interactive_chat_loop():
             rag_context += "\n" + rag_snippets
         else:
             rag_context = "No directly relevant files found."
+
+        # --- Dynamic World Events: trigger every 15 turns ---
+        if game_state["turn_counter"] % 15 == 0:
+            event_text = get_ai_event(game_state["turn_counter"], context_xml, rag_context=rag_context)
+            if event_text:
+                print(f"\n[World Event]: {event_text}")
+                # Optionally, log the event in game_state["Log"]
+                if "Log" not in game_state:
+                    game_state["Log"] = {}
+                if "Entry" not in game_state["Log"] or not isinstance(game_state["Log"].get("Entry"), list):
+                    game_state["Log"]["Entry"] = []
+                game_state["Log"]["Entry"].append({
+                    "timestamp": datetime.now().isoformat(),
+                    "type": "WorldEvent",
+                    "Content": event_text
+                })
 
         # --- FIX: Only call get_ai_narrative ONCE, with rag_context ---
         ai_output = get_ai_narrative(cmd, context_xml, roll_result, rag_context=rag_context)
@@ -804,7 +827,7 @@ def interactive_chat_loop():
             game_state["lastRecap"] = ai_output.splitlines()[0]
             
         log_entry_content = f"Player: {cmd} (Rolled {roll_result})\nAI: {ai_output}"
-        
+
         if "Log" not in game_state:
             game_state["Log"] = {}
         if "Entry" not in game_state["Log"] or not isinstance(game_state["Log"].get("Entry"), list):
@@ -861,6 +884,45 @@ def parse_and_apply_ai_config(ai_output):
         update_ai_config(key, value)
         return True
     return False
+
+def get_ai_event(turn_counter, context_xml, rag_context=""):
+    """Generate a dynamic world event using the AI."""
+    print("\n--- World Event ---")
+    if ollama is None:
+        print("AI not available. No world event generated.")
+        return None
+    try:
+        # Use the same context as get_ai_narrative, but with a world event prompt
+        all_sessions_summary = summarize_all_sessions()
+        ai_config = load_ai_config()
+        prompt_instructions = ai_config.findtext("PromptInstructions", "")
+        max_sentences = ai_config.findtext("MaxSentences", "3")
+        always_tag = ai_config.findtext("AlwaysTagEntities", "true")
+        prompt_for_ai = (
+            f"== RAG Retrieved Info ==\n{rag_context}\n\n"
+            f"{prompt_instructions}\n\n"
+            f"== World Event Trigger ==\n"
+            f"The world changes as time passes. Generate a random but story-relevant world event that could impact the player, NPCs, or the environment. "
+            f"Make it fit the current campaign and recent events. "
+            f"Do NOT require player input, just describe the event in {max_sentences} sentences or less. "
+            f"Tag any new NPCs, locations, or items as [NPC], [LOCATION], or [ITEM].\n"
+            f"Current turn: {turn_counter}\n\n"
+            f"== Current Situation ==\n{extract_minimal_context(context_xml)}\n\n"
+            f"== All Previous Sessions ==\n{all_sessions_summary}\n\n"
+            f"== AI Config XML ==\n{ET.tostring(ai_config, encoding='unicode')}\n"
+        )
+        response = ollama.generate(
+            model=model,
+            prompt=prompt_for_ai,
+            stream=False,
+            temperature=1.2
+        )
+        event_text = response.get('response')
+        print(f"World Event: {event_text}")
+        return event_text
+    except Exception as e:
+        print(f"Error generating world event: {e}")
+        return None
 
 if __name__ == "__main__":
     interactive_chat_loop()
