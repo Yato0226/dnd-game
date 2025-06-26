@@ -18,7 +18,7 @@ except ImportError:
 SAVE_DIRECTORY = Path("dnd_ai_sessions")
 TRANSCRIPT_FILE = SAVE_DIRECTORY / "full_transcript.xml"
 game_state = None
-model = 'phi3:3.8b-mini-4k-instruct-q4_0' # Default model, can be changed to any Ollama model
+model = 'gemma3:4b-it-qat' # Default model, can be changed to any Ollama model
 RAG_INSTANCE = RAG(SAVE_DIRECTORY)
 
 DEFAULTS = {
@@ -318,7 +318,10 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
             model=model,
             prompt=prompt_for_ai,
             stream=False,
-            temperature=1.2  # Add this if supported
+            temperature=1.2,  # Add this if supported
+            ngl=999,
+            top_k=30,  # Adjust to control randomness
+            context=RAG_INSTANCE.get_context_for_query(prompt_for_ai),
         )
         ai_response_text = response.get('response')
         if not ai_response_text:
@@ -490,7 +493,11 @@ def interactive_chat_loop():
                 response = ollama.generate(
                     model= model,
                     prompt=skill_prompt,
-                    stream=False
+                    context=RAG_INSTANCE.get_context_for_query(skill_prompt),
+                    stream=False,
+                    temperature=1.2,  # Add this if supported
+                    ngl=999,
+                    max_tokens=200  # Limit to prevent overly long responses
                 )
                 import json
                 skills_json = response.get('response', '{}')
@@ -898,7 +905,7 @@ def get_ai_event(turn_counter, context_xml, rag_context=""):
         prompt_instructions = ai_config.findtext("PromptInstructions", "")
         max_sentences = ai_config.findtext("MaxSentences", "3")
         always_tag = ai_config.findtext("AlwaysTagEntities", "true")
-        prompt_for_ai = (
+        prompt_for_world_event = (
             f"== RAG Retrieved Info ==\n{rag_context}\n\n"
             f"{prompt_instructions}\n\n"
             f"== World Event Trigger ==\n"
@@ -913,9 +920,13 @@ def get_ai_event(turn_counter, context_xml, rag_context=""):
         )
         response = ollama.generate(
             model=model,
-            prompt=prompt_for_ai,
+            prompt=prompt_for_world_event,
             stream=False,
-            temperature=1.2
+            temperature=1.2,
+            ngl=999,
+            max_tokens=500,  # Limit to prevent overly long responses
+            presence_penalty=0.8,
+            context=RAG_INSTANCE.get_context_for_query(prompt_for_world_event),
         )
         event_text = response.get('response')
         print(f"World Event: {event_text}")
