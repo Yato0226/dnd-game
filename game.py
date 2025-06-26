@@ -293,6 +293,7 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
         
 
         prompt_for_ai = (
+            f"== RAG Retrieved Info ==\n{rag_context}\n\n"
             f"{prompt_instructions}\n\n"
             f"== Player Character ==\n{player_context}\n\n"
             f"== Current Memory ==\n{memory_summary}\n\n"
@@ -303,7 +304,6 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
             f"== Important Locations ==\n{key_locations}\n"
             f"== Important Items ==\n{key_items}\n\n"
             f"== All Previous Sessions ==\n{all_sessions_summary}\n\n"
-            f"== RAG Retrieved Info ==\n{rag_context}\n\n"
             f"== AI Config XML ==\n{ET.tostring(ai_config, encoding='unicode')}\n\n"
             f"== Instructions ==\n"
             f"Before replying, you MUST consider all facts, logs, NPCs, items, locations, and config from all session XMLs and the AI config XML. "
@@ -315,9 +315,10 @@ def get_ai_narrative(player_input_text, current_session_xml_string_context, roll
         )
 
         response = ollama.generate(
-            model= model,
+            model=model,
             prompt=prompt_for_ai,
-            stream=False
+            stream=False,
+            temperature=1.2  # Add this if supported
         )
         ai_response_text = response.get('response')
         if not ai_response_text:
@@ -373,10 +374,9 @@ def extract_skill_from_ai_output(ai_output):
 def load_ai_config():
     config_path = SAVE_DIRECTORY / "ai_config.xml"
     if not config_path.exists():
-        # Create default config if missing
         root = ET.Element("AIConfig")
         ET.SubElement(root, "PromptInstructions").text = (
-            "You are a Dungeons and Dragons game master. Always consider all facts, logs, NPCs, items, and locations from all session XMLs before responding. Use concise, engaging storytelling. Always follow the rules and style in this config."
+            "You are a Dungeons and Dragons game master. Be imaginative, surprising, and vivid in your storytelling. Always consider all facts, logs, NPCs, items, and locations from all session XMLs before responding. Use concise, engaging, and creative storytelling. Always follow the rules and style in this config."
         )
         ET.SubElement(root, "MaxSentences").text = "5"
         ET.SubElement(root, "AlwaysTagEntities").text = "true"
