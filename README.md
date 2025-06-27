@@ -61,12 +61,20 @@ Upon launching the game, you'll be greeted with a choice to **start a new advent
 
 ## File Structure
 
-The project is organized for clarity and ease of use:
+- **main.py**: A clean entry point that simply starts the game loop.
 
--   **`game.py`** — Contains the **main game logic**, handling user input, AI interaction, dice rolls, and session management.
--   **`dnd_ai_sessions/`** — This directory is automatically created to house your game data:
-    -   `SESS-XXX.xml` — **Individual session save files**, where `XXX` is a unique identifier for each game you save.
-    -   `full_transcript.xml` — A comprehensive **log of all player and AI turns** across all your game sessions, useful for reviewing past adventures.
+- **dnd_ai_game/src/config.py**: Centralizes all constants and default settings for easy modification.
+
+- **dnd_ai_game/src/utils/**: Contains helper modules.
+    - **system_utils.py**: Manages OS-level tasks like checking and controlling the Ollama process.
+    - **data_manager.py**: Handles all file I/O, including loading/saving XML game states and transcripts.
+
+- **dnd_ai_game/src/ai/**: Contains all AI-related logic.
+    - **rag.py**: A placeholder for your Retrieval-Augmented Generation system.
+    - **ai_logic.py**: Constructs prompts, interacts with the Ollama API, and parses the AI's responses.
+
+- **dnd_ai_game/src/game/**: Contains the core game mechanics.
+    - **game_logic.py**: Manages the main game loop, player commands, character creation, and the overall game_state.
 
 ---
 

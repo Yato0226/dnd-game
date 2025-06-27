@@ -1,1 +1,3 @@
 /dnd_ai_sessions
+.continue/prompts/new-prompt.yaml
+.gitignore
