@@ -1,3 +1,3 @@
 @echo off
-python "C:\Users\louiz\source\repos\dnd game\dnd_ai_game\game.py"
+python "%~dp0\game.py"
 pause
