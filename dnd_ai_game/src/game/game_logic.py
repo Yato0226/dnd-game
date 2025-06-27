@@ -171,7 +171,14 @@ def interactive_chat_loop():
             save_game_state(game_state, save_path)
             continue
         elif cmd.lower() == "help":
-            print("\nCommands: save, quit, inventory, stats, <any action>")
+            print("\n--- Available Commands ---")
+            print("  help: Show this help message.")
+            print("  inventory / i: Show your inventory.")
+            print("  stats: Show your character stats.")
+            print("  skills: Show your character skills.")
+            print("  save: Save the current game state.")
+            print("  quit / exit: Exit the game.")
+            print("--------------------------")
             continue
         elif cmd.lower() in ("inventory", "i"):
             print_inventory(game_state)
