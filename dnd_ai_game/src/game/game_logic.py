@@ -3,6 +3,7 @@ import random
 import re
 import json
 from datetime import date, datetime
+from enum import Enum
 
 from dnd_ai_game.src.config import DEFAULTS, SAVE_DIRECTORY
 from dnd_ai_game.src.utils.system_utils import is_ollama_running, start_ollama, stop_ollama
@@ -26,6 +27,18 @@ try:
     import ollama
 except ImportError:
     ollama = None
+
+class ItemRarity(Enum):
+    COMMON = "Common"
+    UNCOMMON = "Uncommon"
+    RARE = "Rare"
+    EPIC = "Epic"
+    LEGENDARY = "Legendary"
+    UNIQUE = "Unique"
+    MYTHIC = "Mythic"
+    EXOTIC = "Exotic"
+    RELIC = "Relic"
+    DIVINE = "Divine"
 
 def initialize_new_game():
     """Guides the user through creating a new character and returns a new game_state."""
@@ -103,6 +116,25 @@ def process_player_death(game_state):
     print("Your vision fades to black... You have died. Game Over.")
     return True # Player is dead
 
+def create_item(name, rarity=ItemRarity.COMMON, description=""):
+    return {
+        "name": name,
+        "rarity": rarity.value,
+        "description": description
+    }
+
+def print_inventory(game_state):
+    inv = game_state.get('playerInventory', [])
+    if not inv:
+        print("Inventory: Empty")
+    else:
+        print("Inventory:")
+        for item in inv:
+            if isinstance(item, dict):
+                print(f"- {item['name']} [{item['rarity']}]")
+            else:
+                print(f"- {item}")
+
 def interactive_chat_loop():
     """The main game loop."""
     print("Welcome to the AI D&D Storyteller!")
@@ -142,12 +174,15 @@ def interactive_chat_loop():
             print("\nCommands: save, quit, inventory, stats, <any action>")
             continue
         elif cmd.lower() in ("inventory", "i"):
-            inv = game_state.get('playerInventory', [])
-            print("Inventory: " + (", ".join(inv) if inv else "Empty"))
+            print_inventory(game_state)
             continue
         elif cmd.lower() == "stats":
             stats = ", ".join(f"{k}: {v}" for k, v in game_state.get('playerStats', {}).items())
             print(f"Stats: {stats}")
+            continue
+        elif cmd.lower() == "skills":
+            skills = ", ".join(f"{k}: {v}" for k, v in game_state.get('playerSkills', {}).items())
+            print(f"Skills: {skills if skills else 'None'}")
             continue
 
         game_state["turn_counter"] = game_state.get("turn_counter", 0) + 1
