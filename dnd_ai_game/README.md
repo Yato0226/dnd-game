@@ -37,7 +37,7 @@ dnd_ai_game
    ```
 2. Navigate to the project directory:
    ```
-   cd dnd_ai_game
+   cd dnd-ai-game
    ```
 3. Install the required dependencies:
    ```
